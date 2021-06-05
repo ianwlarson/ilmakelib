@@ -8,6 +8,8 @@ from graph import Graph
 class WorkQueue:
 
     def __init__(self, graph, start):
+        # TODO: Add locking to the structure itself
+        #
 
         self.start = start
         self.g = graph
@@ -15,28 +17,22 @@ class WorkQueue:
         self.ready = set()
         self.inprogress = set()
 
-        """
-        self.heights = {}
-        def update_heights(g, heights, v, h):
-            if not v in heights:
-                heights[v] = h
-
-            for e in g.get_direct_predecessors(v):
-                update_heights(g, heights, e, h+1)
-
-        update_heights(graph, self.heights, start, 0)
-        """
-
         self.timestamps = {}
         # Get a timestamp on all elements in the tree
         start_ts = self.g[start](start)
         self.timestamps[start] = start_ts
 
-        out_of_date = False
+        out_of_date = (start_ts == -1)
+
+        # TODO: Get all the timestamps using a threadpoolexecutor
         for prereq in self.g.get_all_predecessors(start):
 
             prereq_ts = self.g[prereq](prereq)
             self.timestamps[prereq] = prereq_ts
+
+            if prereq_ts == -1:
+                out_of_date = True
+
             if prereq_ts > start_ts:
                 out_of_date = True
 
@@ -51,7 +47,7 @@ class WorkQueue:
 
             dps = self.g.get_direct_predecessors(prereq)
             prereq_age = self.timestamps[prereq]
-            if any(self.timestamps[x] > prereq_age for x in dps):
+            if (prereq_age == -1) or any(self.timestamps[x] > prereq_age for x in dps):
                 self.out_of_date.add(prereq)
 
                 # If something is out of date, mark all its successors as out
@@ -81,6 +77,9 @@ class WorkQueue:
 
     def ready_count(self):
         return len(self.ready)
+
+    def done(self):
+        return len(self.out_of_date) == 0 and len(self.ready) == 0 and len(self.inprogress) == 0
 
     def mark_done(self, name):
 
