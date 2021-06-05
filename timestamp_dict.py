@@ -6,78 +6,64 @@ import os
 import shutil
 import os.path
 
-class FrozenTimestampDict:
+class TimestampDict:
 
-    def __init__(self, basedir):
-        currdir = os.getcwd()
-        resolved = os.path.abspath(os.path.join(os.getcwd(), basedir))
-        common = os.path.commonpath([currdir, resolved])
-        if common != currdir:
-            raise ValueError("basedir appears to resolve to above cwd")
+    lookup = {}
+    timestamps = {}
 
-        if not os.path.exists(basedir):
-            raise RuntimeError(f"{basedir} does not exist")
+    def __init__(self, p_id=None):
+        if not p_id:
+            p_id = ""
 
-        self.bd = basedir
+        self.m_id = p_id
+        self.m_full_prefix = f"tsd::{self.m_id}/"
 
-    def __len__(self):
-        return len(os.listdir(self.bd))
-
-    def __contains__(self, key):
+    def process_key(self, key):
+        """
+        Ensure that that tsd:: prefix doesn't get stuck
+        """
         if not type(key) is str:
-            return False
+            return None
 
         if key.startswith("tsd::"):
-            key = key[len("tsd::"):]
+            # If the key starts with `tsd::`, make sure it identifies this dictionary
+            if not key.startswith(self.m_full_prefix):
+                return None
 
-        dn = os.path.dirname(key)
-        if dn and dn != self.bd:
-            return False
-        key = os.path.basename(key)
+            key = key[len(self.m_full_prefix):]
 
-        return key in os.listdir(self.bd)
+        return key
+
+    def loadkeydir(self, dirname, overwrite=False):
+        for fname in os.listdir(dirname):
+            fpath = os.path.join(dirname, fname)
+            if fname in self.lookup and not overwrite:
+                continue
+
+            with open(fpath) as f:
+                t = f.read().rstrip()
+                self.lookup[fname] = t
+                self.timestamps[fname] = os.path.getmtime(fpath)
+
+    def loadkey(self, dirname, key):
+        pk = self.process_key(key)
+        fpath = os.path.join(dirname, entry)
+        if os.path.exists(fpath):
+            with open(fpath) as f:
+                t = f.read().rstrip()
+                self.lookup[pk] = t
+                self.timestamps[pk] = os.path.getmtime(fpath)
+        else:
+            raise KeyError(f"key {key} doesn't exist")
+
+
+    def __contains__(self, key):
+        pk = self.process_key(key)
+        return pk in self.lookup
 
     def __getitem__(self, key):
-        fname = os.path.join(self.bd, key)
-        try:
-            f = open(fname)
-            o = f.read()
-            f.close()
-        except OSError:
-            raise KeyError(f"{key} does not exist")
-
-        return o
-
-    def items(self):
-        for e in os.listdir(self.bd):
-            yield (e, self[e])
-
-    def __iter__(self):
-        return iter(os.listdir(self.bd))
-
-    def name(self, entry):
-        return f"tsd::{os.path.join(self.bd, entry)}"
-
-    def get_timestamp(self, entry):
-        fpath = os.path.join(self.bd, entry)
-        if not os.path.exists(fpath):
-            return -1
-        else:
-            return os.path.getmtime(fpath)
-
-class TimestampDict(FrozenTimestampDict):
-
-    def __init__(self, basedir):
-        currdir = os.getcwd()
-        resolved = os.path.abspath(os.path.join(os.getcwd(), basedir))
-        common = os.path.commonpath([currdir, resolved])
-        if common != currdir:
-            raise ValueError("basedir appears to resolve to above cwd")
-
-        if not os.path.exists(basedir):
-            os.makedirs(basedir)
-
-        self.bd = basedir
+        pk = self.process_key(key)
+        return self.lookup[pk]
 
     def __setitem__(self, key, value):
         if not type(value) is str or not type(key) is str:
@@ -85,69 +71,110 @@ class TimestampDict(FrozenTimestampDict):
         if key == "":
             raise ValueError("Passed empty string as key")
 
-        fname = os.path.join(self.bd, key)
-        with open(fname, 'w') as f:
-            f.write(value)
+        pk = self.process_key(key)
+        self.lookup[pk] = value
+        self.timestamps[pk] = time.time()
 
-    def empty(self):
-        for fname in os.listdir(self.bd):
-            fpath = os.path.join(self.bd, fname)
-            if os.path.isfile(fpath):
-                os.unlink(fpath)
-            else:
-                raise Exception(f"unknown file type in target dict {fpath}")
+    def items(self):
+        return self.lookup.items()
 
+    def __iter__(self):
+        return iter(self.lookup)
+
+    def __delitem__(self, instance):
+
+        del self.lookup[instance]
+        del self.timestamps[instance]
+
+    def clear(self):
+        self.lookup.clear()
+        self.timestamps.clear()
+
+    """
     def rm(self, entry=None):
         if not entry and os.path.exists(self.bd):
             shutil.rmtree(self.bd)
+            self.clear()
         else:
-            self.clean([entry])
-
-    def clean(self, entries):
-        if not type(entries) == list:
-            raise ValueError("Clean passed non-list")
-
-        for name in entries:
-            fpath = os.path.join(self.bd, fname)
-            if not os.path.exists(fpath):
-                continue
-
-            if os.path.isfile(fpath):
+            pk = self.process_key(entry)
+            fpath = os.path.join(self.bd, pk)
+            try:
                 os.unlink(fpath)
-            else:
-                raise Exception(f"Found non file {fpath}")
+            except Exception:
+                pass
+            try:
+                del self.lookup[fpath]
+                del self.timestamps[fpath]
+            except Exception:
+                pass
 
-    def touch(self, entry):
-        fpath = os.path.join(self.bd, entry)
+    def touch(self, dirname, entry):
+        pk = self.process_key(entry)
+        fpath = os.path.join(self.bd, pk)
         try:
             os.utime(fpath, None)
         except OSError:
             open(fpath, 'a').close()
 
-def get_tsd_ts(tsd):
-    return lambda x: tsd.get_timestamp(x)
+        if pk in self.lookup:
+            self.timestamps[pk] = os.path.getmtime(fpath)
+        else:
+            self.lookup[pk] = ""
+            self.timestamps[pk] = os.path.getmtime(fpath)
+
+    def set(self, entry, value):
+        if not type(entry) is str or not type(value) is str:
+            raise ValueError("entry + value must be strings")
+
+        pk = self.process_key(entry)
+        fpath = os.path.join(self.bd, pk)
+        with open(fpath, 'w') as f:
+            f.write(value)
+
+        self.lookup[entry] = value
+        self.timestamps[entry] = os.path.getmtime(fpath)
+    """
+
+    def time(self, entry):
+
+        pk = self.process_key(entry)
+        return self.timestamps[pk]
+
+    def name(self, entry):
+        return f"{self.m_full_prefix}{entry}"
+
+    """
+
+    def commit(self):
+        for k, v in self.cache.items():
+            fpath = os.path.join(self.bd, k)
+            with open(fpath, 'w') as f:
+                f.write(v)
+    """
+
 
 class TestTimestampDict(unittest.TestCase):
 
     def test_basic(self):
 
-        t = TimestampDict(".vardir")
-        t.empty()
+        t = TimestampDict()
 
         t["abba"] = "1234"
         self.assertIn("abba", t)
-        self.assertIn(".vardir/abba", t)
-        self.assertIn("tsd::.vardir/abba", t)
-        self.assertIn("tsd::abba", t)
+        self.assertIn("tsd::/abba", t)
         self.assertEqual(t["abba"], "1234")
-        t.rm()
+
+    def test_del(self):
+
+        t = TimestampDict()
+        t["abba"] = "1234"
+        self.assertIn("abba", t)
+        del t["abba"]
+        self.assertNotIn("abba", t)
 
     def test_error(self):
 
-        with self.assertRaises(ValueError):
-            t = TimestampDict("../../../below")
-
-        t = TimestampDict(".vardir")
+        t = TimestampDict()
         with self.assertRaises(TypeError):
             t[123] = "123"
         with self.assertRaises(TypeError):
@@ -158,51 +185,23 @@ class TestTimestampDict(unittest.TestCase):
         with self.assertRaises(KeyError):
             a = t["abba"]
 
-        t.rm()
+    def test_timestamping(self):
 
-        with self.assertRaises(RuntimeError):
-            t = FrozenTimestampDict(".vardir")
-
-    def test_frozen(self):
-
-        t = TimestampDict(".ok")
-        t["123"] = "123"
-        f = FrozenTimestampDict(".ok")
-        self.assertEqual(f["123"], "123")
-
-        with self.assertRaises(TypeError):
-            f["123"] = "abba"
-
-        with self.assertRaises(AttributeError):
-            f.rm()
-        with self.assertRaises(AttributeError):
-            f.clear("123")
-        with self.assertRaises(AttributeError):
-            f.empty()
-        with self.assertRaises(AttributeError):
-            f.touch("123")
-
-        t.rm()
-
-    def test_touch(self):
-
-        t = TimestampDict(".vardir")
+        t = TimestampDict()
 
         t["a"] = "123"
         time.sleep(0.2)
         t["b"] = "123"
-        self.assertGreater(t.get_timestamp("b"), t.get_timestamp("a"))
+        self.assertGreater(t.time("b"), t.time("a"))
 
         time.sleep(0.2)
-        t.touch("a")
+        t["a"] = "456"
 
-        self.assertGreater(t.get_timestamp("a"), t.get_timestamp("b"))
-
-        t.rm()
+        self.assertGreater(t.time("a"), t.time("b"))
 
     def test_iterators(self):
 
-        t = TimestampDict(".vardir")
+        t = TimestampDict()
         t["a"] = ""
         t["b"] = ""
         t["c"] = ""
@@ -211,8 +210,6 @@ class TestTimestampDict(unittest.TestCase):
             seen.append(item)
 
         self.assertEqual(sorted(["a", "b", "c"]), sorted(seen))
-
-        t.rm()
 
 
 if __name__ == "__main__":
