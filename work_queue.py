@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 import unittest
 from collections import deque
+from threading import Condition
 import time
 import copy
 from graph import Graph
 
 class WorkQueue:
+
+    cond = Condition()
 
     def __init__(self, graph, start):
         # TODO: Add locking to the structure itself
@@ -76,46 +79,72 @@ class WorkQueue:
 
 
     def ready_count(self):
-        return len(self.ready)
+        with self.cond:
+            return len(self.ready)
 
     def done(self):
-        return len(self.out_of_date) == 0 and len(self.ready) == 0 and len(self.inprogress) == 0
+        with self.cond:
+            return len(self.out_of_date) == 0 and len(self.ready) == 0 and len(self.inprogress) == 0
 
     def mark_done(self, name):
+        with self.cond:
 
-        assert name in self.timestamps
+            assert name in self.timestamps
 
-        # Update the timestamp for name
-        new_ts = self.g[name](name)
-        self.timestamps[name] = new_ts
+            # Update the timestamp for name
+            new_ts = self.g[name](name)
+            self.timestamps[name] = new_ts
 
-        dps = self.g.get_direct_predecessors(name)
-        if any(self.timestamps[x] > new_ts for x in dps):
-            raise Exception(f"{name} was not updated!")
+            dps = self.g.get_direct_predecessors(name)
+            if any(self.timestamps[x] > new_ts for x in dps):
+                raise Exception(f"{name} was not updated!")
 
-        self.out_of_date.remove(name)
-        self.inprogress.remove(name)
+            self.out_of_date.remove(name)
+            self.inprogress.remove(name)
 
-        for item in self.g.get_direct_successors(name):
+            for item in self.g.get_direct_successors(name):
 
-            # If item has already been touched
-            if item in self.ready or item in self.inprogress:
-                continue
+                # If item has already been touched
+                if item in self.ready or item in self.inprogress:
+                    continue
 
-            # If all the predecessors are done, we can add this object to the
-            # ready queue
-            allp = self.g.get_direct_predecessors(item)
-            if not any(x in self.out_of_date for x in allp):
-                self.ready.add(item)
+                # If all the predecessors are done, we can add this object to the
+                # ready queue
+                allp = self.g.get_direct_predecessors(item)
+                if not any(x in self.out_of_date for x in allp):
+                    self.ready.add(item)
+
+            if self.done():
+                self.cond.notify_all()
+            else:
+                self.cond.notify(self.ready_count())
 
 
-    def get_item(self):
-        if self.ready:
-            o = self.ready.pop()
-            self.inprogress.add(o)
-        else:
-            o = None
-        return o
+    def get_item(self, wait=False):
+        with self.cond:
+            # If there will never be items, return None
+            if self.done():
+                return None
+
+            if wait:
+                # If we are waiting and there are no items, wait to be signalled
+                if not self.ready:
+                    self.cond.wait_for(lambda:self.done() or self.ready_count() > 0)
+
+                # If we were awoken after the work queue was complete, return None
+                if self.done():
+                    return None
+
+                assert self.ready
+
+            if self.ready:
+                o = self.ready.pop()
+                self.inprogress.add(o)
+            else:
+                o = None
+
+            return o
+
 
 class TestWorkQueue(unittest.TestCase):
 
