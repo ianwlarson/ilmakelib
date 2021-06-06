@@ -3,7 +3,7 @@ import random
 from collections.abc import Iterable
 from collections import deque
 import unittest
-from unique_stack import UniqueStack
+from .unique_stack import UniqueStack
 
 
 class Vertex:

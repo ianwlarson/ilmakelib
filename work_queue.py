@@ -5,7 +5,8 @@ from threading import Condition
 from concurrent.futures import ThreadPoolExecutor
 import time
 import copy
-from graph import Graph
+
+from .graph import Graph
 
 class WorkQueue:
 
