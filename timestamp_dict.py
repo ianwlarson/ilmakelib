@@ -8,15 +8,15 @@ import os.path
 
 class TimestampDict:
 
-    lookup = {}
-    timestamps = {}
-
     def __init__(self, p_id=None):
         if not p_id:
             p_id = ""
 
         self.m_id = p_id
         self.m_full_prefix = f"tsd::{self.m_id}/"
+        self.lookup = {}
+        self.timestamps = {}
+
 
     def process_key(self, key):
         """
@@ -90,6 +90,16 @@ class TimestampDict:
         self.lookup.clear()
         self.timestamps.clear()
 
+
+    def touch(self, dirname, entry):
+        pk = self.process_key(entry)
+        fpath = os.path.join(dirname, pk)
+        try:
+            os.utime(fpath, None)
+        except OSError:
+            open(fpath, 'a').close()
+
+
     """
     def rm(self, entry=None):
         if not entry and os.path.exists(self.bd):
@@ -108,19 +118,6 @@ class TimestampDict:
             except Exception:
                 pass
 
-    def touch(self, dirname, entry):
-        pk = self.process_key(entry)
-        fpath = os.path.join(self.bd, pk)
-        try:
-            os.utime(fpath, None)
-        except OSError:
-            open(fpath, 'a').close()
-
-        if pk in self.lookup:
-            self.timestamps[pk] = os.path.getmtime(fpath)
-        else:
-            self.lookup[pk] = ""
-            self.timestamps[pk] = os.path.getmtime(fpath)
 
     def set(self, entry, value):
         if not type(entry) is str or not type(value) is str:
@@ -138,7 +135,8 @@ class TimestampDict:
     def time(self, entry):
 
         pk = self.process_key(entry)
-        return self.timestamps[pk]
+        o = self.timestamps[pk]
+        return o
 
     def name(self, entry):
         return f"{self.m_full_prefix}{entry}"

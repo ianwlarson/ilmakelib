@@ -2,15 +2,25 @@
 import unittest
 from collections import deque
 from threading import Condition
+from concurrent.futures import ThreadPoolExecutor
 import time
 import copy
 from graph import Graph
 
 class WorkQueue:
 
-    cond = Condition()
 
-    def __init__(self, graph, start):
+    def raises_on_error(func):
+        def error_check(self, *args, **kwargs):
+            with self.cond:
+                if self.error:
+                    raise RuntimeError()
+
+            return func(self, *args, *kwargs)
+
+        return error_check
+
+    def __init__(self, graph, start, nthreads=1):
         # TODO: Add locking to the structure itself
         #
 
@@ -20,27 +30,23 @@ class WorkQueue:
         self.ready = set()
         self.inprogress = set()
 
+        self.cond = Condition()
+        self.error = False
+
         self.timestamps = {}
         # Get a timestamp on all elements in the tree
         start_ts = self.g[start](start)
         self.timestamps[start] = start_ts
 
-        out_of_date = (start_ts == -1)
-
-        # TODO: Get all the timestamps using a threadpoolexecutor
+        # TODO: See if using a ThreadPoolExecutor to get all the timestamps
+        # speeds anything up. I don't think it does because the timestamping
+        # function is usually just calling os.path.getmtime, which (probably)
+        # doesn't release the GIL.
         for prereq in self.g.get_all_predecessors(start):
 
             prereq_ts = self.g[prereq](prereq)
             self.timestamps[prereq] = prereq_ts
 
-            if prereq_ts == -1:
-                out_of_date = True
-
-            if prereq_ts > start_ts:
-                out_of_date = True
-
-        if not out_of_date:
-            return
 
         # Check to see whether the elements are out of date or not
         for prereq in self.g.get_all_predecessors(start):
@@ -84,8 +90,10 @@ class WorkQueue:
 
     def done(self):
         with self.cond:
-            return len(self.out_of_date) == 0 and len(self.ready) == 0 and len(self.inprogress) == 0
+            no_more_work = (len(self.out_of_date) == 0) and (len(self.ready) == 0) and (len(self.inprogress) == 0)
+            return no_more_work or self.error
 
+    @raises_on_error
     def mark_done(self, name):
         with self.cond:
 
@@ -119,7 +127,12 @@ class WorkQueue:
             else:
                 self.cond.notify(self.ready_count())
 
+    def mark_error(self):
+        with self.cond:
+            self.error = True
+            self.cond.notify_all()
 
+    @raises_on_error
     def get_item(self, wait=False):
         with self.cond:
             # If there will never be items, return None
