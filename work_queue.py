@@ -42,6 +42,9 @@ class WorkQueue:
         self.error = False
 
         self.timestamps = {}
+        self.depends = {}
+
+        self.depends[start] = set(self.g.get_direct_predecessors(start))
 
         # Get a timestamp on all elements in the tree
         self.timestamps[start] = self._get_ts(start)
@@ -53,6 +56,7 @@ class WorkQueue:
         for prereq in self.g.get_all_predecessors(start):
 
             self.timestamps[prereq] = self._get_ts(prereq)
+            self.depends[prereq] = set(self.g.get_direct_predecessors(prereq))
 
 
         # Check to see whether the elements are out of date or not
@@ -79,15 +83,20 @@ class WorkQueue:
                     if not e in self.out_of_date:
                         self.out_of_date.add(e)
                         stack.extend(self.g.get_direct_successors(e))
+            else:
+                # The entry is not out of date!
+                for l_succ in self.g.get_direct_successors(prereq):
+                    self.depends[l_succ].remove(prereq)
 
-                #self.out_of_date.update(self.g.get_all_successors(prereq))
 
         # Go through all the elements that are out of date looking for elements
         # that have no predecessors who are out of date. This loop is probably
         # slow.
         for prereq in self.out_of_date:
-            allp = self.g.get_all_predecessors(prereq)
-            if not any(x in self.out_of_date for x in allp):
+
+            # If the prerequisite no longer depends on anything, add it to the
+            # ready queue.
+            if not self.depends[prereq]:
                 self.ready.add(prereq)
 
 
@@ -119,14 +128,11 @@ class WorkQueue:
 
             for item in self.g.get_direct_successors(name):
 
-                # If item has already been touched
-                if item in self.ready or item in self.inprogress:
-                    continue
-
-                # If all the predecessors are done, we can add this object to the
-                # ready queue
-                allp = self.g.get_direct_predecessors(item)
-                if not any(x in self.out_of_date for x in allp):
+                # Remove name from all of its direct successor's dependencies
+                # and if there are no dependencies remaining, add it to the
+                # ready queue.
+                self.depends[item].remove(name)
+                if not self.depends[item]:
                     self.ready.add(item)
 
             if self.done():
