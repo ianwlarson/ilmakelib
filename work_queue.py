@@ -21,7 +21,13 @@ class WorkQueue:
 
         return error_check
 
-    def __init__(self, graph, start, nthreads=1):
+    def _get_ts(self, item):
+
+        item_type = self.g[item]
+        ts_func = self.ts_rules[item_type]
+        return ts_func(item)
+
+    def __init__(self, graph, start, ts_rule_dict):
         # TODO: Add locking to the structure itself
         #
 
@@ -30,14 +36,15 @@ class WorkQueue:
         self.out_of_date = set()
         self.ready = set()
         self.inprogress = set()
+        self.ts_rules = ts_rule_dict
 
         self.cond = Condition()
         self.error = False
 
         self.timestamps = {}
+
         # Get a timestamp on all elements in the tree
-        start_ts = self.g[start](start)
-        self.timestamps[start] = start_ts
+        self.timestamps[start] = self._get_ts(start)
 
         # TODO: See if using a ThreadPoolExecutor to get all the timestamps
         # speeds anything up. I don't think it does because the timestamping
@@ -45,8 +52,7 @@ class WorkQueue:
         # doesn't release the GIL.
         for prereq in self.g.get_all_predecessors(start):
 
-            prereq_ts = self.g[prereq](prereq)
-            self.timestamps[prereq] = prereq_ts
+            self.timestamps[prereq] = self._get_ts(prereq)
 
 
         # Check to see whether the elements are out of date or not
@@ -101,7 +107,7 @@ class WorkQueue:
             assert name in self.timestamps
 
             # Update the timestamp for name
-            new_ts = self.g[name](name)
+            new_ts = self._get_ts(name)
             self.timestamps[name] = new_ts
 
             dps = self.g.get_direct_predecessors(name)
@@ -160,7 +166,13 @@ class WorkQueue:
             return o
 
 
+from enum import Enum, auto
+
 class TestWorkQueue(unittest.TestCase):
+
+    class wType(Enum):
+        wFILE = auto()
+        wDIRECTORY = auto()
 
     """
     def test_base(self):
@@ -197,6 +209,8 @@ class TestWorkQueue(unittest.TestCase):
                 # Files that don't exist are very old
                 return 0
 
+        func_dict = { wType.wFILE : getfileage }
+
         g = Graph()
         g["foo"] = getfileage
         g["foo.o"] = getfileage
@@ -207,7 +221,7 @@ class TestWorkQueue(unittest.TestCase):
         g.add_edge("foo", "foo.o")
         g.add_edge("foo.o", "foo.c", "foo.h")
 
-        w = WorkQueue(g, "foo")
+        w = WorkQueue(g, "foo", func_dict)
 
         item = w.get_item()
         self.assertEqual(item, "foo.o")
