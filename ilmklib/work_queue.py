@@ -71,6 +71,18 @@ class WorkQueue:
             return False
 
 
+    def get_updated(self):
+        '''
+        Return a list of all the leaf nodes that are newer than any root nodes
+        '''
+
+        for item in self.g.root_nodes:
+            for n_item in self.g.leaf_nodes:
+                if self.timestamps[item] < self.timestamps[n_item]:
+                    yield n_item
+        pass
+
+
     def __init__(self, graph, start, ts_rule_dict):
 
         self.start = start
