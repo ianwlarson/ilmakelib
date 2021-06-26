@@ -83,9 +83,8 @@ class WorkQueue:
         pass
 
 
-    def __init__(self, graph, start, ts_rule_dict):
+    def __init__(self, graph, ts_rule_dict):
 
-        self.start = start
         self.g = graph
 
         self.out_of_date = set()
@@ -101,8 +100,8 @@ class WorkQueue:
         self.timestamps = {}
         self.depends = {}
 
-        if not self._is_out_of_date(start):
-            return
+    def activate(self, entry):
+        self._is_out_of_date(entry)
 
     def ready_count(self):
         with self.cond:
